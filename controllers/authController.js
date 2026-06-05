@@ -4,15 +4,30 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 exports.register = async (req, res) => {
+    // 1. Log para saber si la petición realmente llegó a Render y qué datos trae
+    console.log("=== Petición de registro recibida en producción ===");
+    console.log("Body recibido:", req.body);
+
     const { username, email, password, adminKey } = req.body;
     
     try {
+        // Verificar si las dependencias clave o el modelo existen antes de operar
+        if (!User) {
+            console.error("Error: El modelo 'User' no está definido o importado.");
+            return res.status(500).json({ error: "Error interno: Modelo User no disponible." });
+        }
+
         const existingUser = await User.findOne({ email });
-        if (existingUser) return res.status(400).json({ msg: "El correo ya está registrado" });
+        if (existingUser) {
+            console.log(`Registro fallido: El correo ${email} ya existe.`);
+            return res.status(400).json({ msg: "El correo ya está registrado" });
+        }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const isAdmin = adminKey === process.env.ADMIN_KEY;
+        // Validación segura por si process.env.ADMIN_KEY no se ha propagado correctamente
+        const serverAdminKey = process.env.ADMIN_KEY || null;
+        const isAdmin = serverAdminKey && adminKey === serverAdminKey;
         const userRole = isAdmin ? 'admin' : 'user';
 
         const user = new User({
@@ -24,12 +39,37 @@ exports.register = async (req, res) => {
             subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
         });
         
+        console.log("Intentando guardar el usuario en la base de datos...");
         await user.save();
-        await Analytics.updateOne({ date: new Date().toISOString().split('T')[0] }, { $inc: { newUsers: 1 } }, { upsert: true });
+        console.log("Usuario guardado exitosamente.");
 
-        res.json({ msg: `Usuario registrado como ${userRole}` });
+        // Bloque aislado para Analytics por si este modelo es el que falla
+        try {
+            if (typeof Analytics !== 'undefined' && Analytics.updateOne) {
+                console.log("Actualizando métricas en Analytics...");
+                await Analytics.updateOne(
+                    { date: new Date().toISOString().split('T')[0] }, 
+                    { $inc: { newUsers: 1 } }, 
+                    { upsert: true }
+                );
+                console.log("Métricas actualizadas.");
+            } else {
+                console.warn("Advertencia: El modelo Analytics no está disponible o importado.");
+            }
+        } catch (analyticsErr) {
+            // Si falla analytics, lo logeamos pero NO rompemos la respuesta del usuario ya creado
+            console.error("Error no crítico en el modelo de Analytics:", analyticsErr.message);
+        }
+
+        return res.json({ msg: `Usuario registrado como ${userRole}` });
+
     } catch (err) { 
-        res.status(500).json({ error: err.message }); 
+        // 2. Este log imprimirá el error real con lujo de detalle en la pestaña 'Logs' de Render
+        console.error("=== ERROR CRÍTICO EN REGISTER ===");
+        console.error("Mensaje del error:", err.message);
+        console.error("Stack Trace:", err.stack);
+
+        return res.status(500).json({ error: err.message }); 
     }
 };
 
