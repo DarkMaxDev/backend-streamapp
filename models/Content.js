@@ -1,30 +1,26 @@
-// models/Content.js
 const mongoose = require('mongoose');
+
+const EpisodioSchema = new mongoose.Schema({
+    numero: Number,
+    titulo: String,
+    url: String
+}, { timestamps: true }); // <-- Esto genera automáticamente createdAt y updatedAt por episodio
 
 const ContentSchema = new mongoose.Schema({
     titulo: { type: String, required: true },
     descripcion: String,
     tipo: { type: String, enum: ['anime', 'pelicula', 'serie'], required: true },
     imagen: String,
-    videoUrl: String, // Usado principalmente para películas
+    videoUrl: String, 
     linkTrailer: String,
     categorias: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
     
-    // Mantenemos episodios por retrocompatibilidad
-    episodios: [{
-        numero: Number,
-        titulo: String,
-        url: String
-    }],
+    episodios: [EpisodioSchema], // Retrocompatibilidad con fechas individuales
     
     // Nueva estructura para series/animes con temporadas
     temporadas: [{
         numero: Number,
-        episodios: [{
-            numero: Number,
-            titulo: String,
-            url: String
-        }]
+        episodios: [EpisodioSchema] // <-- Cada episodio aquí también tendrá su propia fecha
     }],
     
     isPremium: { type: Boolean, default: false },
